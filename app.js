@@ -22,7 +22,7 @@ const tags = [
 ];
 
 const incomeSources = ["給与", "副業", "臨時収入", "その他"];
-const defaultCardNames = ["楽天カード", "PayPayカード", "三井住友カード", "その他カード"];
+const defaultCardNames = ["ｄカード", "ペイペイカード", "楽天カード", "その他"];
 const businessIncomeCategories = ["売上", "報酬", "原稿料", "講師料", "その他収入"];
 const businessExpenseCategories = [
   "通信費",
@@ -950,7 +950,7 @@ async function loadData() {
   state.businessEntries = businessEntries || [];
   state.settings = { ...defaultSettings, ...(savedSettings?.value || {}) };
   state.settings.incomeSources = state.settings.incomeSources || incomeSources;
-  state.settings.cardNames = state.settings.cardNames || defaultCardNames;
+  state.settings.cardNames = mergeDefaults(defaultCardNames, state.settings.cardNames || []);
   state.settings.businessIncomeCategories = state.settings.businessIncomeCategories || businessIncomeCategories;
   state.settings.businessExpenseCategories = state.settings.businessExpenseCategories || businessExpenseCategories;
   state.settings.categories = mergeDefaults(state.settings.categories, categories);
