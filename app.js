@@ -7,6 +7,7 @@ const categories = [
   "医療・美容",
   "交通",
   "趣味・娯楽",
+  "ローン",
   "固定費",
 ];
 
@@ -951,12 +952,21 @@ async function loadData() {
   state.settings.cardNames = state.settings.cardNames || defaultCardNames;
   state.settings.businessIncomeCategories = state.settings.businessIncomeCategories || businessIncomeCategories;
   state.settings.businessExpenseCategories = state.settings.businessExpenseCategories || businessExpenseCategories;
+  state.settings.categories = mergeDefaults(state.settings.categories, categories);
   state.expenses = state.expenses.map((expense) => ({
     paymentMethod: "cash",
     cardName: "",
     tags: [],
     ...expense,
   }));
+}
+
+function mergeDefaults(savedItems, defaultItems) {
+  const merged = Array.isArray(savedItems) ? [...savedItems] : [];
+  defaultItems.forEach((item) => {
+    if (!merged.includes(item)) merged.push(item);
+  });
+  return merged;
 }
 
 async function saveSettings() {
