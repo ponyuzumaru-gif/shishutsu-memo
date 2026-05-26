@@ -20,18 +20,24 @@ const tags = [
   "まとめ買い",
 ];
 
+const incomeSources = ["給与", "副業", "臨時収入", "その他"];
+
 const defaultSettings = {
   monthlyBudget: 80000,
   defaultCategory: "食費",
   categories,
   tags,
+  incomeSources,
 };
 
 const state = {
   expenses: [],
+  incomes: [],
   settings: { ...defaultSettings },
   activeScreen: "input",
+  entryType: "expense",
   selectedCategory: "食費",
+  selectedIncomeSource: "給与",
   selectedTags: new Set(),
   editTags: new Set(),
   viewingMonth: monthKey(new Date()),
@@ -56,18 +62,25 @@ function cacheElements() {
     "date",
     "memo",
     "category-options",
+    "category-field",
+    "income-source-options",
+    "income-source-field",
     "tag-options",
+    "tag-details",
     "form-error",
     "form-success",
     "expense-form",
     "month-title",
     "month-total",
+    "month-income-total",
+    "month-balance",
     "month-budget",
     "month-remaining",
     "daily-remaining",
     "category-summary",
     "reflection-list",
     "history-list",
+    "filter-type",
     "filter-month",
     "filter-category",
     "filter-tag",
@@ -77,11 +90,17 @@ function cacheElements() {
     "settings-success",
     "edit-dialog",
     "edit-form",
+    "edit-title",
     "edit-id",
+    "edit-type",
     "edit-amount",
     "edit-date",
+    "edit-category-field",
     "edit-category",
+    "edit-income-source-field",
+    "edit-income-source",
     "edit-memo",
+    "edit-tags-field",
     "edit-tags",
     "edit-error",
     "export-csv",
@@ -98,6 +117,7 @@ function bindEvents() {
   els.expenseForm.addEventListener("submit", handleAddExpense);
   els.settingsForm.addEventListener("submit", handleSaveSettings);
   els.editForm.addEventListener("submit", handleEditExpense);
+  els.filterType.addEventListener("change", renderHistory);
   els.filterMonth.addEventListener("change", renderHistory);
   els.filterCategory.addEventListener("change", renderHistory);
   els.filterTag.addEventListener("change", renderHistory);
@@ -107,6 +127,12 @@ function bindEvents() {
   document.getElementById("close-dialog").addEventListener("click", closeEditDialog);
   document.getElementById("cancel-edit").addEventListener("click", closeEditDialog);
   document.getElementById("delete-expense").addEventListener("click", deleteEditingExpense);
+  document.querySelectorAll("[data-entry-type]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.entryType = button.dataset.entryType;
+      renderInputMode();
+    });
+  });
 }
 
 function initializeUi() {
@@ -114,7 +140,9 @@ function initializeUi() {
   els.filterMonth.value = state.viewingMonth;
   els.monthlyBudget.value = state.settings.monthlyBudget || "";
   state.selectedCategory = state.settings.defaultCategory || categories[0];
+  state.selectedIncomeSource = state.settings.incomeSources[0] || incomeSources[0];
   renderOptions();
+  renderInputMode();
 }
 
 function renderOptions() {
@@ -123,6 +151,9 @@ function renderOptions() {
     .join("");
   els.tagOptions.innerHTML = state.settings.tags
     .map((tag) => chipButton(tag, state.selectedTags.has(tag), "tag"))
+    .join("");
+  els.incomeSourceOptions.innerHTML = state.settings.incomeSources
+    .map((source) => chipButton(source, state.selectedIncomeSource === source, "income-source"))
     .join("");
 
   els.categoryOptions.querySelectorAll("button").forEach((button) => {
@@ -138,11 +169,18 @@ function renderOptions() {
       renderOptions();
     });
   });
+  els.incomeSourceOptions.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedIncomeSource = button.dataset.value;
+      renderOptions();
+    });
+  });
 
   populateSelect(els.filterCategory, ["すべてのカテゴリ", ...state.settings.categories]);
   populateSelect(els.filterTag, ["すべてのタグ", ...state.settings.tags]);
   populateSelect(els.defaultCategory, state.settings.categories, state.settings.defaultCategory);
   populateSelect(els.editCategory, state.settings.categories);
+  populateSelect(els.editIncomeSource, state.settings.incomeSources);
 }
 
 function render() {
@@ -168,47 +206,64 @@ async function handleAddExpense(event) {
   event.preventDefault();
   clearMessages();
   const amount = parseAmount(els.amount.value);
-  const validation = validateExpense({ amount, date: els.date.value, category: state.selectedCategory });
+  const validation = validateEntry({
+    amount,
+    date: els.date.value,
+    type: state.entryType,
+    category: state.selectedCategory,
+    source: state.selectedIncomeSource,
+  });
   if (validation) {
     els.formError.textContent = validation;
     return;
   }
 
   const now = new Date().toISOString();
-  const expense = {
+  const entry = {
     id: crypto.randomUUID(),
     date: els.date.value,
     amount,
-    category: state.selectedCategory,
     memo: els.memo.value.trim(),
-    tags: [...state.selectedTags],
     createdAt: now,
     updatedAt: now,
   };
 
-  await db.put("expenses", expense);
-  state.expenses.push(expense);
-  state.settings.defaultCategory = state.selectedCategory;
-  await saveSettings();
+  if (state.entryType === "income") {
+    const income = { ...entry, source: state.selectedIncomeSource };
+    await db.put("incomes", income);
+    state.incomes.push(income);
+  } else {
+    const expense = { ...entry, category: state.selectedCategory, tags: [...state.selectedTags] };
+    await db.put("expenses", expense);
+    state.expenses.push(expense);
+    state.settings.defaultCategory = state.selectedCategory;
+    await saveSettings();
+  }
 
   els.amount.value = "";
   els.memo.value = "";
   els.date.value = todayKey();
   state.selectedTags.clear();
-  els.formSuccess.textContent = "登録しました";
+  els.formSuccess.textContent = state.entryType === "income" ? "収入を登録しました" : "支出を登録しました";
   window.setTimeout(() => (els.formSuccess.textContent = ""), 2200);
   render();
 }
 
 function renderMonth() {
   const monthExpenses = expensesForMonth(state.viewingMonth);
+  const monthIncomes = incomesForMonth(state.viewingMonth);
   const total = sum(monthExpenses.map((expense) => expense.amount));
+  const incomeTotal = sum(monthIncomes.map((income) => income.amount));
+  const balance = incomeTotal - total;
   const budget = Number(state.settings.monthlyBudget) || 0;
   const remaining = budget - total;
   const daily = dailyRemaining(state.viewingMonth, remaining);
 
   els.monthTitle.textContent = formatMonthTitle(state.viewingMonth);
   els.monthTotal.textContent = yen(total);
+  els.monthIncomeTotal.textContent = yen(incomeTotal);
+  els.monthBalance.textContent = yen(balance);
+  els.monthBalance.style.color = balance < 0 ? "var(--warn)" : "var(--good)";
   els.monthBudget.textContent = yen(budget);
   els.monthRemaining.textContent = yen(remaining);
   els.monthRemaining.style.color = remaining < 0 ? "var(--warn)" : "var(--ink)";
@@ -280,55 +335,75 @@ function renderMiniExpense(expense) {
 }
 
 function renderHistory() {
+  const typeFilter = els.filterType.value;
   const categoryFilter = els.filterCategory.value;
   const tagFilter = els.filterTag.value;
   const monthFilter = els.filterMonth.value;
-  let items = [...state.expenses];
+  let items = [
+    ...state.expenses.map((expense) => ({ ...expense, type: "expense" })),
+    ...state.incomes.map((income) => ({ ...income, type: "income" })),
+  ];
 
-  if (monthFilter) items = items.filter((expense) => expense.date.startsWith(monthFilter));
+  if (typeFilter !== "all") items = items.filter((item) => item.type === typeFilter);
+  if (monthFilter) items = items.filter((item) => item.date.startsWith(monthFilter));
   if (categoryFilter && categoryFilter !== "すべてのカテゴリ") {
-    items = items.filter((expense) => expense.category === categoryFilter);
+    items = items.filter((item) => item.type === "expense" && item.category === categoryFilter);
   }
   if (tagFilter && tagFilter !== "すべてのタグ") {
-    items = items.filter((expense) => expense.tags.includes(tagFilter));
+    items = items.filter((item) => item.type === "expense" && item.tags.includes(tagFilter));
   }
 
   items.sort(sortNewest);
 
   els.historyList.innerHTML = items.length
-    ? items.map(renderExpenseItem).join("")
-    : `<p class="empty-state">条件に合う支出はありません</p>`;
+    ? items.map(renderEntryItem).join("")
+    : `<p class="empty-state">条件に合う記録はありません</p>`;
 
   els.historyList.querySelectorAll(".edit-button").forEach((button) => {
-    button.addEventListener("click", () => openEditDialog(button.dataset.id));
+    button.addEventListener("click", () => openEditDialog(button.dataset.type, button.dataset.id));
   });
 }
 
-function renderExpenseItem(expense) {
+function renderEntryItem(entry) {
+  const isIncome = entry.type === "income";
+  const label = isIncome ? entry.source : entry.category;
+  const title = entry.memo || label;
   return `
-    <article class="expense-item">
+    <article class="expense-item ${isIncome ? "income" : ""}">
       <div class="expense-top">
         <div class="expense-title">
-          <strong>${escapeHtml(expense.memo || expense.category)}</strong>
-          <span class="expense-meta">${formatDate(expense.date)} / ${escapeHtml(expense.category)}</span>
+          <strong>${escapeHtml(title)}</strong>
+          <span class="expense-meta">${formatDate(entry.date)} / ${isIncome ? "収入" : "支出"} / ${escapeHtml(label)}</span>
         </div>
-        <span class="expense-amount">${yen(expense.amount)}</span>
+        <span class="expense-amount">${isIncome ? "+" : ""}${yen(entry.amount)}</span>
       </div>
-      ${expense.tags.length ? `<div class="tag-row">${expense.tags.map((tag) => `<span class="tag-pill">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
-      <button class="edit-button" type="button" data-id="${expense.id}">編集</button>
+      ${!isIncome && entry.tags.length ? `<div class="tag-row">${entry.tags.map((tag) => `<span class="tag-pill">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+      <button class="edit-button" type="button" data-type="${entry.type}" data-id="${entry.id}">編集</button>
     </article>
   `;
 }
 
-function openEditDialog(id) {
-  const expense = state.expenses.find((item) => item.id === id);
-  if (!expense) return;
-  els.editId.value = expense.id;
-  els.editAmount.value = expense.amount;
-  els.editDate.value = expense.date;
-  els.editCategory.value = expense.category;
-  els.editMemo.value = expense.memo;
-  state.editTags = new Set(expense.tags);
+function openEditDialog(type, id) {
+  const entry = type === "income"
+    ? state.incomes.find((item) => item.id === id)
+    : state.expenses.find((item) => item.id === id);
+  if (!entry) return;
+  els.editTitle.textContent = type === "income" ? "収入を編集" : "支出を編集";
+  els.editId.value = entry.id;
+  els.editType.value = type;
+  els.editAmount.value = entry.amount;
+  els.editDate.value = entry.date;
+  els.editMemo.value = entry.memo;
+  els.editCategoryField.classList.toggle("hidden", type === "income");
+  els.editIncomeSourceField.classList.toggle("hidden", type !== "income");
+  els.editTagsField.classList.toggle("hidden", type === "income");
+  if (type === "income") {
+    els.editIncomeSource.value = entry.source;
+    state.editTags = new Set();
+  } else {
+    els.editCategory.value = entry.category;
+    state.editTags = new Set(entry.tags);
+  }
   renderEditTags();
   els.editError.textContent = "";
   els.editDialog.showModal();
@@ -349,38 +424,54 @@ function renderEditTags() {
 async function handleEditExpense(event) {
   event.preventDefault();
   const amount = parseAmount(els.editAmount.value);
-  const validation = validateExpense({
+  const type = els.editType.value;
+  const validation = validateEntry({
     amount,
     date: els.editDate.value,
+    type,
     category: els.editCategory.value,
+    source: els.editIncomeSource.value,
   });
   if (validation) {
     els.editError.textContent = validation;
     return;
   }
 
-  const expense = state.expenses.find((item) => item.id === els.editId.value);
-  if (!expense) return;
+  const list = type === "income" ? state.incomes : state.expenses;
+  const entry = list.find((item) => item.id === els.editId.value);
+  if (!entry) return;
   const updated = {
-    ...expense,
+    ...entry,
     date: els.editDate.value,
     amount,
-    category: els.editCategory.value,
     memo: els.editMemo.value.trim(),
-    tags: [...state.editTags],
     updatedAt: new Date().toISOString(),
   };
-  await db.put("expenses", updated);
-  state.expenses = state.expenses.map((item) => (item.id === updated.id ? updated : item));
+  if (type === "income") {
+    updated.source = els.editIncomeSource.value;
+    await db.put("incomes", updated);
+    state.incomes = state.incomes.map((item) => (item.id === updated.id ? updated : item));
+  } else {
+    updated.category = els.editCategory.value;
+    updated.tags = [...state.editTags];
+    await db.put("expenses", updated);
+    state.expenses = state.expenses.map((item) => (item.id === updated.id ? updated : item));
+  }
   closeEditDialog();
   render();
 }
 
 async function deleteEditingExpense() {
   const id = els.editId.value;
-  if (!id || !window.confirm("この支出を削除しますか？")) return;
-  await db.delete("expenses", id);
-  state.expenses = state.expenses.filter((expense) => expense.id !== id);
+  const type = els.editType.value;
+  if (!id || !window.confirm(type === "income" ? "この収入を削除しますか？" : "この支出を削除しますか？")) return;
+  if (type === "income") {
+    await db.delete("incomes", id);
+    state.incomes = state.incomes.filter((income) => income.id !== id);
+  } else {
+    await db.delete("expenses", id);
+    state.expenses = state.expenses.filter((expense) => expense.id !== id);
+  }
   closeEditDialog();
   render();
 }
@@ -412,6 +503,10 @@ function expensesForMonth(key) {
   return state.expenses.filter((expense) => expense.date.startsWith(key));
 }
 
+function incomesForMonth(key) {
+  return state.incomes.filter((income) => income.date.startsWith(key));
+}
+
 function dailyRemaining(key, remaining) {
   const nowKey = monthKey(new Date());
   const [year, month] = key.split("-").map(Number);
@@ -422,17 +517,32 @@ function dailyRemaining(key, remaining) {
   return remaining / (daysInMonth - today + 1);
 }
 
-function validateExpense({ amount, date, category }) {
+function validateEntry({ amount, date, type, category, source }) {
   if (!date) return "日付を選択してください";
   if (!amount && amount !== 0) return "金額を入力してください";
   if (amount <= 0) return "1円以上で入力してください";
-  if (!category) return "カテゴリを選択してください";
+  if (type === "income" && !source) return "収入種別を選択してください";
+  if (type !== "income" && !category) return "カテゴリを選択してください";
   return "";
 }
 
 function clearMessages() {
   els.formError.textContent = "";
   els.formSuccess.textContent = "";
+}
+
+function renderInputMode() {
+  const isIncome = state.entryType === "income";
+  document.querySelectorAll("[data-entry-type]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.entryType === state.entryType);
+  });
+  els.categoryField.classList.toggle("hidden", isIncome);
+  els.incomeSourceField.classList.toggle("hidden", !isIncome);
+  els.tagDetails.classList.toggle("hidden", isIncome);
+  els.memo.placeholder = isIncome ? "給与・振込元など" : "店名・用途など";
+  document.querySelector(".primary-action").textContent = isIncome ? "収入を登録する" : "登録する";
+  if (isIncome) state.selectedTags.clear();
+  renderOptions();
 }
 
 function chipButton(label, active, name) {
@@ -511,9 +621,15 @@ function toCamel(value) {
 }
 
 async function loadData() {
-  const [expenses, savedSettings] = await Promise.all([db.getAll("expenses"), db.get("settings", "main")]);
+  const [expenses, incomes, savedSettings] = await Promise.all([
+    db.getAll("expenses"),
+    db.getAll("incomes"),
+    db.get("settings", "main"),
+  ]);
   state.expenses = expenses || [];
+  state.incomes = incomes || [];
   state.settings = { ...defaultSettings, ...(savedSettings?.value || {}) };
+  state.settings.incomeSources = state.settings.incomeSources || incomeSources;
 }
 
 async function saveSettings() {
@@ -521,9 +637,13 @@ async function saveSettings() {
 }
 
 function exportCsv() {
-  const header = ["id", "date", "amount", "category", "memo", "tags", "createdAt", "updatedAt"];
-  const rows = state.expenses.sort(sortNewest).map((expense) =>
-    header.map((key) => csvCell(key === "tags" ? expense.tags.join("|") : expense[key])).join(",")
+  const header = ["type", "id", "date", "amount", "category", "source", "memo", "tags", "createdAt", "updatedAt"];
+  const entries = [
+    ...state.expenses.map((expense) => ({ ...expense, type: "expense", source: "" })),
+    ...state.incomes.map((income) => ({ ...income, type: "income", category: "", tags: [] })),
+  ].sort(sortNewest);
+  const rows = entries.map((entry) =>
+    header.map((key) => csvCell(key === "tags" ? (entry.tags || []).join("|") : entry[key])).join(",")
   );
   const csv = "\ufeff" + [header.join(","), ...rows].join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -550,7 +670,7 @@ const db = {
   instance: null,
   open() {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open("shishutsu-memo-db", 1);
+      const request = indexedDB.open("shishutsu-memo-db", 2);
       request.onupgradeneeded = () => {
         const database = request.result;
         if (!database.objectStoreNames.contains("expenses")) {
@@ -558,6 +678,9 @@ const db = {
         }
         if (!database.objectStoreNames.contains("settings")) {
           database.createObjectStore("settings", { keyPath: "id" });
+        }
+        if (!database.objectStoreNames.contains("incomes")) {
+          database.createObjectStore("incomes", { keyPath: "id" });
         }
       };
       request.onsuccess = () => {

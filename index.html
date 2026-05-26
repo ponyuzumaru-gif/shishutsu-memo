@@ -27,6 +27,11 @@
         <section class="screen active" id="screen-input" aria-labelledby="input-title">
           <h2 class="sr-only" id="input-title">支出登録</h2>
           <form id="expense-form" class="input-form">
+            <div class="segmented" role="group" aria-label="入力種別">
+              <button class="active" id="mode-expense" type="button" data-entry-type="expense">支出</button>
+              <button id="mode-income" type="button" data-entry-type="income">収入</button>
+            </div>
+
             <label class="field">
               <span>金額</span>
               <div class="amount-row">
@@ -40,9 +45,14 @@
               <input id="date" type="date" required>
             </label>
 
-            <div class="field">
+            <div class="field" id="category-field">
               <span>カテゴリ</span>
               <div class="chip-grid" id="category-options"></div>
+            </div>
+
+            <div class="field hidden" id="income-source-field">
+              <span>収入種別</span>
+              <div class="chip-grid" id="income-source-options"></div>
             </div>
 
             <label class="field">
@@ -50,7 +60,7 @@
               <input id="memo" type="text" maxlength="60" placeholder="店名・用途など">
             </label>
 
-            <details class="tag-details">
+            <details class="tag-details" id="tag-details">
               <summary>タグをつける</summary>
               <div class="chip-grid tags" id="tag-options"></div>
             </details>
@@ -73,6 +83,14 @@
             <article class="summary-card total">
               <span>支出合計</span>
               <strong id="month-total">0円</strong>
+            </article>
+            <article class="summary-card income">
+              <span>収入合計</span>
+              <strong id="month-income-total">0円</strong>
+            </article>
+            <article class="summary-card">
+              <span>差引</span>
+              <strong id="month-balance">0円</strong>
             </article>
             <article class="summary-card">
               <span>月予算</span>
@@ -106,6 +124,11 @@
         <section class="screen" id="screen-history" aria-labelledby="history-title">
           <h2 class="sr-only" id="history-title">履歴</h2>
           <div class="filters">
+            <select id="filter-type" aria-label="種別で絞り込み">
+              <option value="all">すべて</option>
+              <option value="expense">支出</option>
+              <option value="income">収入</option>
+            </select>
             <input id="filter-month" type="month" aria-label="月で絞り込み">
             <select id="filter-category" aria-label="カテゴリで絞り込み"></select>
             <select id="filter-tag" aria-label="タグで絞り込み"></select>
@@ -144,10 +167,11 @@
     <dialog id="edit-dialog">
       <form id="edit-form" class="edit-form" method="dialog">
         <div class="dialog-title">
-          <h2>支出を編集</h2>
+          <h2 id="edit-title">支出を編集</h2>
           <button class="icon-button" id="close-dialog" type="button" aria-label="閉じる">×</button>
         </div>
         <input id="edit-id" type="hidden">
+        <input id="edit-type" type="hidden">
         <label class="field">
           <span>金額</span>
           <div class="amount-row">
@@ -159,15 +183,19 @@
           <span>日付</span>
           <input id="edit-date" type="date" required>
         </label>
-        <label class="field">
+        <label class="field" id="edit-category-field">
           <span>カテゴリ</span>
           <select id="edit-category"></select>
+        </label>
+        <label class="field hidden" id="edit-income-source-field">
+          <span>収入種別</span>
+          <select id="edit-income-source"></select>
         </label>
         <label class="field">
           <span>メモ</span>
           <input id="edit-memo" type="text" maxlength="60">
         </label>
-        <div class="field">
+        <div class="field" id="edit-tags-field">
           <span>タグ</span>
           <div class="chip-grid tags" id="edit-tags"></div>
         </div>
