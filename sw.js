@@ -2,8 +2,8 @@ const CACHE_NAME = "shishutsu-memo-v2";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css",
-  "./app.js",
+  "./styles.css?v=2",
+  "./app.js?v=2",
   "./manifest.json",
   "./icon.svg"
 ];
