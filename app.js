@@ -220,6 +220,7 @@ function initializeUi() {
 }
 
 function renderOptions() {
+  state.settings.categories = mergeDefaults(state.settings.categories, categories);
   els.categoryOptions.innerHTML = state.settings.categories
     .map((category) => chipButton(category, state.selectedCategory === category, "category"))
     .join("");
