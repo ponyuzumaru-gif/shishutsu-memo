@@ -8,7 +8,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="icon.svg">
-    <link rel="stylesheet" href="styles.css?v=4">
+    <link rel="stylesheet" href="styles.css?v=6">
     <title>支出メモ</title>
   </head>
   <body>
@@ -158,6 +158,86 @@
           <div id="history-list" class="expense-list"></div>
         </section>
 
+        <section class="screen" id="screen-business" aria-labelledby="business-title">
+          <div class="month-toolbar">
+            <button class="icon-button" id="prev-business-year" type="button" aria-label="前年">‹</button>
+            <h2 id="business-title"></h2>
+            <button class="icon-button" id="next-business-year" type="button" aria-label="翌年">›</button>
+          </div>
+
+          <div class="summary-grid">
+            <article class="summary-card income">
+              <span>副業収入</span>
+              <strong id="business-income-total">0円</strong>
+            </article>
+            <article class="summary-card">
+              <span>副業経費</span>
+              <strong id="business-expense-total">0円</strong>
+            </article>
+            <article class="summary-card total">
+              <span>差引利益</span>
+              <strong id="business-profit-total">0円</strong>
+            </article>
+          </div>
+
+          <section class="panel">
+            <div class="section-heading">
+              <h3>副業記録</h3>
+              <button class="ghost-icon" id="export-business-csv" type="button">CSV</button>
+            </div>
+            <form id="business-form" class="input-form">
+              <div class="segmented small" role="group" aria-label="副業の種別">
+                <button class="active" type="button" data-business-type="income">収入</button>
+                <button type="button" data-business-type="expense">経費</button>
+              </div>
+              <label class="field compact-date">
+                <span>日付</span>
+                <input id="business-date" type="date" required>
+              </label>
+              <label class="field">
+                <span>金額</span>
+                <div class="amount-row">
+                  <input id="business-amount" inputmode="numeric" pattern="[0-9]*" placeholder="0" required>
+                  <b>円</b>
+                </div>
+              </label>
+              <label class="field">
+                <span>区分</span>
+                <select id="business-category"></select>
+              </label>
+              <label class="field">
+                <span>取引先・内容</span>
+                <input id="business-partner" type="text" maxlength="80" placeholder="取引先、案件名、購入内容など">
+              </label>
+              <label class="field">
+                <span>メモ</span>
+                <input id="business-note" type="text" maxlength="100" placeholder="領収書の保管場所、按分メモなど">
+              </label>
+              <label class="check-row">
+                <input id="business-receipt" type="checkbox">
+                <span>領収書・請求書あり</span>
+              </label>
+              <p class="form-error" id="business-error" role="alert"></p>
+              <p class="form-success" id="business-success" role="status"></p>
+              <button class="primary-action" type="submit">副業記録を追加</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="section-heading">
+              <h3>経費区分別</h3>
+            </div>
+            <div id="business-category-summary" class="stack-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="section-heading">
+              <h3>年間一覧</h3>
+            </div>
+            <div id="business-list" class="expense-list"></div>
+          </section>
+        </section>
+
         <section class="screen" id="screen-settings" aria-labelledby="settings-title">
           <h2 id="settings-title">設定</h2>
           <form id="settings-form" class="settings-form">
@@ -182,6 +262,7 @@
         <button class="nav-item active" data-screen="input" type="button">入力</button>
         <button class="nav-item" data-screen="month" type="button">今月</button>
         <button class="nav-item" data-screen="history" type="button">履歴</button>
+        <button class="nav-item" data-screen="business" type="button">副業</button>
         <button class="nav-item" data-screen="settings" type="button">設定</button>
       </nav>
     </div>
@@ -241,6 +322,6 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=4" defer></script>
+    <script src="app.js?v=6" defer></script>
   </body>
 </html>

@@ -22,6 +22,19 @@ const tags = [
 
 const incomeSources = ["給与", "副業", "臨時収入", "その他"];
 const defaultCardNames = ["楽天カード", "PayPayカード", "三井住友カード", "その他カード"];
+const businessIncomeCategories = ["売上", "報酬", "原稿料", "講師料", "その他収入"];
+const businessExpenseCategories = [
+  "通信費",
+  "消耗品費",
+  "交通費",
+  "接待交際費",
+  "広告宣伝費",
+  "外注費",
+  "支払手数料",
+  "書籍・学習",
+  "家事按分",
+  "その他経費",
+];
 
 const defaultSettings = {
   monthlyBudget: 80000,
@@ -30,11 +43,14 @@ const defaultSettings = {
   tags,
   incomeSources,
   cardNames: defaultCardNames,
+  businessIncomeCategories,
+  businessExpenseCategories,
 };
 
 const state = {
   expenses: [],
   incomes: [],
+  businessEntries: [],
   settings: { ...defaultSettings },
   activeScreen: "input",
   entryType: "expense",
@@ -45,6 +61,8 @@ const state = {
   editPaymentMethod: "cash",
   editTags: new Set(),
   viewingMonth: monthKey(new Date()),
+  businessType: "income",
+  businessYear: new Date().getFullYear(),
 };
 
 const els = {};
@@ -94,6 +112,22 @@ function cacheElements() {
     "filter-category",
     "filter-payment",
     "filter-tag",
+    "business-form",
+    "business-title",
+    "business-date",
+    "business-amount",
+    "business-category",
+    "business-partner",
+    "business-note",
+    "business-receipt",
+    "business-error",
+    "business-success",
+    "business-income-total",
+    "business-expense-total",
+    "business-profit-total",
+    "business-category-summary",
+    "business-list",
+    "export-business-csv",
     "settings-form",
     "monthly-budget",
     "default-category",
@@ -136,8 +170,12 @@ function bindEvents() {
   els.filterPayment.addEventListener("change", renderHistory);
   els.filterTag.addEventListener("change", renderHistory);
   els.exportCsv.addEventListener("click", exportCsv);
+  els.businessForm.addEventListener("submit", handleAddBusinessEntry);
+  els.exportBusinessCsv.addEventListener("click", exportBusinessCsv);
   document.getElementById("prev-month").addEventListener("click", () => shiftMonth(-1));
   document.getElementById("next-month").addEventListener("click", () => shiftMonth(1));
+  document.getElementById("prev-business-year").addEventListener("click", () => shiftBusinessYear(-1));
+  document.getElementById("next-business-year").addEventListener("click", () => shiftBusinessYear(1));
   document.getElementById("close-dialog").addEventListener("click", closeEditDialog);
   document.getElementById("cancel-edit").addEventListener("click", closeEditDialog);
   document.getElementById("delete-expense").addEventListener("click", deleteEditingExpense);
@@ -159,17 +197,25 @@ function bindEvents() {
       renderEditPaymentMode();
     });
   });
+  document.querySelectorAll("[data-business-type]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.businessType = button.dataset.businessType;
+      renderBusinessType();
+    });
+  });
 }
 
 function initializeUi() {
   els.date.value = todayKey();
   els.filterMonth.value = state.viewingMonth;
   els.monthlyBudget.value = state.settings.monthlyBudget || "";
+  els.businessDate.value = todayKey();
   state.selectedCategory = state.settings.defaultCategory || categories[0];
   state.selectedIncomeSource = state.settings.incomeSources[0] || incomeSources[0];
   state.selectedPaymentMethod = "cash";
   renderOptions();
   renderInputMode();
+  renderBusinessType();
 }
 
 function renderOptions() {
@@ -218,6 +264,7 @@ function render() {
   renderOptions();
   renderMonth();
   renderHistory();
+  renderBusiness();
 }
 
 function switchScreen(screen) {
@@ -228,7 +275,7 @@ function switchScreen(screen) {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.classList.toggle("active", button.dataset.screen === screen);
   });
-  const titles = { input: "入力", month: "今月", history: "履歴", settings: "設定" };
+  const titles = { input: "入力", month: "今月", history: "履歴", business: "副業", settings: "設定" };
   els.screenTitle.textContent = titles[screen];
   render();
 }
@@ -370,6 +417,150 @@ function renderPaymentSummary(monthExpenses, total) {
       `;
     })
     .join("");
+}
+
+async function handleAddBusinessEntry(event) {
+  event.preventDefault();
+  els.businessError.textContent = "";
+  els.businessSuccess.textContent = "";
+  const amount = parseAmount(els.businessAmount.value);
+  if (!els.businessDate.value) {
+    els.businessError.textContent = "日付を選択してください";
+    return;
+  }
+  if (!amount) {
+    els.businessError.textContent = "金額を入力してください";
+    return;
+  }
+  if (amount <= 0) {
+    els.businessError.textContent = "1円以上で入力してください";
+    return;
+  }
+  if (!els.businessCategory.value) {
+    els.businessError.textContent = "区分を選択してください";
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const entry = {
+    id: crypto.randomUUID(),
+    type: state.businessType,
+    date: els.businessDate.value,
+    amount,
+    category: els.businessCategory.value,
+    partner: els.businessPartner.value.trim(),
+    note: els.businessNote.value.trim(),
+    hasReceipt: els.businessReceipt.checked,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.put("businessEntries", entry);
+  state.businessEntries.push(entry);
+  els.businessAmount.value = "";
+  els.businessPartner.value = "";
+  els.businessNote.value = "";
+  els.businessReceipt.checked = false;
+  els.businessSuccess.textContent = "副業記録を追加しました";
+  window.setTimeout(() => (els.businessSuccess.textContent = ""), 2200);
+  renderBusiness();
+}
+
+function renderBusiness() {
+  if (!els.businessTitle) return;
+  const entries = businessEntriesForYear(state.businessYear);
+  const incomes = entries.filter((entry) => entry.type === "income");
+  const expenses = entries.filter((entry) => entry.type === "expense");
+  const incomeTotal = sum(incomes.map((entry) => entry.amount));
+  const expenseTotal = sum(expenses.map((entry) => entry.amount));
+  const profit = incomeTotal - expenseTotal;
+
+  els.businessTitle.textContent = `${state.businessYear}年`;
+  els.businessIncomeTotal.textContent = yen(incomeTotal);
+  els.businessExpenseTotal.textContent = yen(expenseTotal);
+  els.businessProfitTotal.textContent = yen(profit);
+  els.businessProfitTotal.style.color = profit < 0 ? "var(--warn)" : "var(--good)";
+
+  renderBusinessCategorySummary(expenses, expenseTotal);
+  renderBusinessList(entries);
+}
+
+function renderBusinessCategorySummary(expenses, total) {
+  if (!expenses.length) {
+    els.businessCategorySummary.innerHTML = `<p class="empty-state">この年の経費はまだありません</p>`;
+    return;
+  }
+  const byCategory = groupBy(expenses, "category");
+  els.businessCategorySummary.innerHTML = Object.entries(byCategory)
+    .sort(([, a], [, b]) => sum(b.map((item) => item.amount)) - sum(a.map((item) => item.amount)))
+    .map(([category, items]) => {
+      const categoryTotal = sum(items.map((item) => item.amount));
+      const percent = total ? Math.round((categoryTotal / total) * 100) : 0;
+      return `
+        <div class="summary-row">
+          <div>
+            <strong>${escapeHtml(category)}</strong>
+            <small>${items.length}件</small>
+          </div>
+          <strong>${yen(categoryTotal)}</strong>
+          <div class="progress" aria-hidden="true"><i style="--value:${percent}%"></i></div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderBusinessList(entries) {
+  const sorted = [...entries].sort(sortNewest);
+  els.businessList.innerHTML = sorted.length
+    ? sorted.map(renderBusinessItem).join("")
+    : `<p class="empty-state">この年の副業記録はまだありません</p>`;
+  els.businessList.querySelectorAll(".business-delete").forEach((button) => {
+    button.addEventListener("click", () => deleteBusinessEntry(button.dataset.id));
+  });
+}
+
+function renderBusinessItem(entry) {
+  const isIncome = entry.type === "income";
+  return `
+    <article class="expense-item ${isIncome ? "income" : ""}">
+      <div class="expense-top">
+        <div class="expense-title">
+          <strong>${escapeHtml(entry.partner || entry.category)}</strong>
+          <span class="expense-meta">${formatDate(entry.date)} / ${isIncome ? "収入" : "経費"} / ${escapeHtml(entry.category)}${entry.hasReceipt ? " / 証憑あり" : ""}</span>
+        </div>
+        <span class="expense-amount">${isIncome ? "+" : ""}${yen(entry.amount)}</span>
+      </div>
+      ${entry.note ? `<p class="expense-meta">${escapeHtml(entry.note)}</p>` : ""}
+      <button class="edit-button business-delete" type="button" data-id="${entry.id}">削除</button>
+    </article>
+  `;
+}
+
+async function deleteBusinessEntry(id) {
+  if (!id || !window.confirm("この副業記録を削除しますか？")) return;
+  await db.delete("businessEntries", id);
+  state.businessEntries = state.businessEntries.filter((entry) => entry.id !== id);
+  renderBusiness();
+}
+
+function businessEntriesForYear(year) {
+  return state.businessEntries.filter((entry) => entry.date.startsWith(`${year}-`));
+}
+
+function shiftBusinessYear(delta) {
+  state.businessYear += delta;
+  renderBusiness();
+}
+
+function renderBusinessType() {
+  document.querySelectorAll("[data-business-type]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.businessType === state.businessType);
+  });
+  const categories =
+    state.businessType === "income"
+      ? state.settings.businessIncomeCategories
+      : state.settings.businessExpenseCategories;
+  populateSelect(els.businessCategory, categories);
 }
 
 function renderReflection(monthExpenses) {
@@ -746,16 +937,20 @@ function toCamel(value) {
 }
 
 async function loadData() {
-  const [expenses, incomes, savedSettings] = await Promise.all([
+  const [expenses, incomes, businessEntries, savedSettings] = await Promise.all([
     db.getAll("expenses"),
     db.getAll("incomes"),
+    db.getAll("businessEntries"),
     db.get("settings", "main"),
   ]);
   state.expenses = expenses || [];
   state.incomes = incomes || [];
+  state.businessEntries = businessEntries || [];
   state.settings = { ...defaultSettings, ...(savedSettings?.value || {}) };
   state.settings.incomeSources = state.settings.incomeSources || incomeSources;
   state.settings.cardNames = state.settings.cardNames || defaultCardNames;
+  state.settings.businessIncomeCategories = state.settings.businessIncomeCategories || businessIncomeCategories;
+  state.settings.businessExpenseCategories = state.settings.businessExpenseCategories || businessExpenseCategories;
   state.expenses = state.expenses.map((expense) => ({
     paymentMethod: "cash",
     cardName: "",
@@ -807,6 +1002,31 @@ function exportCsv() {
   URL.revokeObjectURL(url);
 }
 
+function exportBusinessCsv() {
+  const header = [
+    "type",
+    "date",
+    "amount",
+    "category",
+    "partner",
+    "note",
+    "hasReceipt",
+    "createdAt",
+    "updatedAt",
+  ];
+  const rows = businessEntriesForYear(state.businessYear)
+    .sort(sortNewest)
+    .map((entry) => header.map((key) => csvCell(entry[key])).join(","));
+  const csv = "\ufeff" + [header.join(","), ...rows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `side-business-${state.businessYear}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function csvCell(value) {
   const text = String(value ?? "");
   return `"${text.replaceAll('"', '""')}"`;
@@ -822,7 +1042,7 @@ const db = {
   instance: null,
   open() {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open("shishutsu-memo-db", 2);
+      const request = indexedDB.open("shishutsu-memo-db", 3);
       request.onupgradeneeded = () => {
         const database = request.result;
         if (!database.objectStoreNames.contains("expenses")) {
@@ -833,6 +1053,9 @@ const db = {
         }
         if (!database.objectStoreNames.contains("incomes")) {
           database.createObjectStore("incomes", { keyPath: "id" });
+        }
+        if (!database.objectStoreNames.contains("businessEntries")) {
+          database.createObjectStore("businessEntries", { keyPath: "id" });
         }
       };
       request.onsuccess = () => {
