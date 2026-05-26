@@ -8,7 +8,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="icon.svg">
-    <link rel="stylesheet" href="styles.css?v=2">
+    <link rel="stylesheet" href="styles.css?v=3">
     <title>支出メモ</title>
   </head>
   <body>
@@ -49,6 +49,20 @@
               <span>カテゴリ</span>
               <div class="chip-grid" id="category-options"></div>
             </div>
+
+            <div class="field" id="payment-field">
+              <span>支払い方法</span>
+              <div class="segmented small" role="group" aria-label="支払い方法">
+                <button class="active" id="payment-cash" type="button" data-payment-method="cash">現金</button>
+                <button id="payment-card" type="button" data-payment-method="card">カード</button>
+              </div>
+            </div>
+
+            <label class="field hidden" id="card-name-field">
+              <span>カード名</span>
+              <input id="card-name" type="text" maxlength="40" list="card-name-suggestions" placeholder="楽天カードなど">
+              <datalist id="card-name-suggestions"></datalist>
+            </label>
 
             <div class="field hidden" id="income-source-field">
               <span>収入種別</span>
@@ -115,6 +129,13 @@
 
           <section class="panel">
             <div class="section-heading">
+              <h3>支払い方法別</h3>
+            </div>
+            <div id="payment-summary" class="stack-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="section-heading">
               <h3>ふり返り</h3>
             </div>
             <div id="reflection-list" class="reflection-list"></div>
@@ -131,6 +152,7 @@
             </select>
             <input id="filter-month" type="month" aria-label="月で絞り込み">
             <select id="filter-category" aria-label="カテゴリで絞り込み"></select>
+            <select id="filter-payment" aria-label="支払い方法で絞り込み"></select>
             <select id="filter-tag" aria-label="タグで絞り込み"></select>
           </div>
           <div id="history-list" class="expense-list"></div>
@@ -187,6 +209,17 @@
           <span>カテゴリ</span>
           <select id="edit-category"></select>
         </label>
+        <div class="field" id="edit-payment-field">
+          <span>支払い方法</span>
+          <div class="segmented small" role="group" aria-label="編集時の支払い方法">
+            <button id="edit-payment-cash" type="button" data-edit-payment-method="cash">現金</button>
+            <button id="edit-payment-card" type="button" data-edit-payment-method="card">カード</button>
+          </div>
+        </div>
+        <label class="field hidden" id="edit-card-name-field">
+          <span>カード名</span>
+          <input id="edit-card-name" type="text" maxlength="40" list="card-name-suggestions">
+        </label>
         <label class="field hidden" id="edit-income-source-field">
           <span>収入種別</span>
           <select id="edit-income-source"></select>
@@ -208,6 +241,6 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=2" defer></script>
+    <script src="app.js?v=3" defer></script>
   </body>
 </html>

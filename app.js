@@ -21,6 +21,7 @@ const tags = [
 ];
 
 const incomeSources = ["給与", "副業", "臨時収入", "その他"];
+const defaultCardNames = ["楽天カード", "PayPayカード", "三井住友カード", "その他カード"];
 
 const defaultSettings = {
   monthlyBudget: 80000,
@@ -28,6 +29,7 @@ const defaultSettings = {
   categories,
   tags,
   incomeSources,
+  cardNames: defaultCardNames,
 };
 
 const state = {
@@ -37,8 +39,10 @@ const state = {
   activeScreen: "input",
   entryType: "expense",
   selectedCategory: "食費",
+  selectedPaymentMethod: "cash",
   selectedIncomeSource: "給与",
   selectedTags: new Set(),
+  editPaymentMethod: "cash",
   editTags: new Set(),
   viewingMonth: monthKey(new Date()),
 };
@@ -63,6 +67,10 @@ function cacheElements() {
     "memo",
     "category-options",
     "category-field",
+    "payment-field",
+    "card-name-field",
+    "card-name",
+    "card-name-suggestions",
     "income-source-options",
     "income-source-field",
     "tag-options",
@@ -78,11 +86,13 @@ function cacheElements() {
     "month-remaining",
     "daily-remaining",
     "category-summary",
+    "payment-summary",
     "reflection-list",
     "history-list",
     "filter-type",
     "filter-month",
     "filter-category",
+    "filter-payment",
     "filter-tag",
     "settings-form",
     "monthly-budget",
@@ -97,6 +107,9 @@ function cacheElements() {
     "edit-date",
     "edit-category-field",
     "edit-category",
+    "edit-payment-field",
+    "edit-card-name-field",
+    "edit-card-name",
     "edit-income-source-field",
     "edit-income-source",
     "edit-memo",
@@ -120,6 +133,7 @@ function bindEvents() {
   els.filterType.addEventListener("change", renderHistory);
   els.filterMonth.addEventListener("change", renderHistory);
   els.filterCategory.addEventListener("change", renderHistory);
+  els.filterPayment.addEventListener("change", renderHistory);
   els.filterTag.addEventListener("change", renderHistory);
   els.exportCsv.addEventListener("click", exportCsv);
   document.getElementById("prev-month").addEventListener("click", () => shiftMonth(-1));
@@ -133,6 +147,18 @@ function bindEvents() {
       renderInputMode();
     });
   });
+  document.querySelectorAll("[data-payment-method]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedPaymentMethod = button.dataset.paymentMethod;
+      renderPaymentMode();
+    });
+  });
+  document.querySelectorAll("[data-edit-payment-method]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.editPaymentMethod = button.dataset.editPaymentMethod;
+      renderEditPaymentMode();
+    });
+  });
 }
 
 function initializeUi() {
@@ -141,6 +167,7 @@ function initializeUi() {
   els.monthlyBudget.value = state.settings.monthlyBudget || "";
   state.selectedCategory = state.settings.defaultCategory || categories[0];
   state.selectedIncomeSource = state.settings.incomeSources[0] || incomeSources[0];
+  state.selectedPaymentMethod = "cash";
   renderOptions();
   renderInputMode();
 }
@@ -177,10 +204,14 @@ function renderOptions() {
   });
 
   populateSelect(els.filterCategory, ["すべてのカテゴリ", ...state.settings.categories]);
+  populateSelect(els.filterPayment, ["すべての支払い方法", "現金", ...state.settings.cardNames]);
   populateSelect(els.filterTag, ["すべてのタグ", ...state.settings.tags]);
   populateSelect(els.defaultCategory, state.settings.categories, state.settings.defaultCategory);
   populateSelect(els.editCategory, state.settings.categories);
   populateSelect(els.editIncomeSource, state.settings.incomeSources);
+  els.cardNameSuggestions.innerHTML = state.settings.cardNames
+    .map((name) => `<option value="${escapeHtml(name)}"></option>`)
+    .join("");
 }
 
 function render() {
@@ -212,6 +243,8 @@ async function handleAddExpense(event) {
     type: state.entryType,
     category: state.selectedCategory,
     source: state.selectedIncomeSource,
+    paymentMethod: state.selectedPaymentMethod,
+    cardName: els.cardName.value.trim(),
   });
   if (validation) {
     els.formError.textContent = validation;
@@ -233,15 +266,25 @@ async function handleAddExpense(event) {
     await db.put("incomes", income);
     state.incomes.push(income);
   } else {
-    const expense = { ...entry, category: state.selectedCategory, tags: [...state.selectedTags] };
+    const paymentMethod = state.selectedPaymentMethod;
+    const cardName = paymentMethod === "card" ? els.cardName.value.trim() : "";
+    const expense = {
+      ...entry,
+      category: state.selectedCategory,
+      paymentMethod,
+      cardName,
+      tags: [...state.selectedTags],
+    };
     await db.put("expenses", expense);
     state.expenses.push(expense);
     state.settings.defaultCategory = state.selectedCategory;
+    rememberCardName(cardName);
     await saveSettings();
   }
 
   els.amount.value = "";
   els.memo.value = "";
+  if (state.selectedPaymentMethod === "cash") els.cardName.value = "";
   els.date.value = todayKey();
   state.selectedTags.clear();
   els.formSuccess.textContent = state.entryType === "income" ? "収入を登録しました" : "支出を登録しました";
@@ -293,7 +336,40 @@ function renderMonth() {
       .join("");
   }
 
+  renderPaymentSummary(monthExpenses, total);
   renderReflection(monthExpenses);
+}
+
+function renderPaymentSummary(monthExpenses, total) {
+  if (!monthExpenses.length) {
+    els.paymentSummary.innerHTML = `<p class="empty-state">この月の支出はまだありません</p>`;
+    return;
+  }
+
+  const byPayment = monthExpenses.reduce((groups, expense) => {
+    const label = paymentLabel(expense);
+    groups[label] ||= [];
+    groups[label].push(expense);
+    return groups;
+  }, {});
+
+  els.paymentSummary.innerHTML = Object.entries(byPayment)
+    .sort(([, a], [, b]) => sum(b.map((item) => item.amount)) - sum(a.map((item) => item.amount)))
+    .map(([label, items]) => {
+      const paymentTotal = sum(items.map((item) => item.amount));
+      const percent = total ? Math.round((paymentTotal / total) * 100) : 0;
+      return `
+        <div class="summary-row">
+          <div>
+            <strong>${escapeHtml(label)}</strong>
+            <small>${items.length}件</small>
+          </div>
+          <strong>${yen(paymentTotal)}</strong>
+          <div class="progress" aria-hidden="true"><i style="--value:${percent}%"></i></div>
+        </div>
+      `;
+    })
+    .join("");
 }
 
 function renderReflection(monthExpenses) {
@@ -337,6 +413,7 @@ function renderMiniExpense(expense) {
 function renderHistory() {
   const typeFilter = els.filterType.value;
   const categoryFilter = els.filterCategory.value;
+  const paymentFilter = els.filterPayment.value;
   const tagFilter = els.filterTag.value;
   const monthFilter = els.filterMonth.value;
   let items = [
@@ -348,6 +425,9 @@ function renderHistory() {
   if (monthFilter) items = items.filter((item) => item.date.startsWith(monthFilter));
   if (categoryFilter && categoryFilter !== "すべてのカテゴリ") {
     items = items.filter((item) => item.type === "expense" && item.category === categoryFilter);
+  }
+  if (paymentFilter && paymentFilter !== "すべての支払い方法") {
+    items = items.filter((item) => item.type === "expense" && paymentLabel(item) === paymentFilter);
   }
   if (tagFilter && tagFilter !== "すべてのタグ") {
     items = items.filter((item) => item.type === "expense" && item.tags.includes(tagFilter));
@@ -367,13 +447,14 @@ function renderHistory() {
 function renderEntryItem(entry) {
   const isIncome = entry.type === "income";
   const label = isIncome ? entry.source : entry.category;
+  const meta = isIncome ? label : `${label} / ${paymentLabel(entry)}`;
   const title = entry.memo || label;
   return `
     <article class="expense-item ${isIncome ? "income" : ""}">
       <div class="expense-top">
         <div class="expense-title">
           <strong>${escapeHtml(title)}</strong>
-          <span class="expense-meta">${formatDate(entry.date)} / ${isIncome ? "収入" : "支出"} / ${escapeHtml(label)}</span>
+          <span class="expense-meta">${formatDate(entry.date)} / ${isIncome ? "収入" : "支出"} / ${escapeHtml(meta)}</span>
         </div>
         <span class="expense-amount">${isIncome ? "+" : ""}${yen(entry.amount)}</span>
       </div>
@@ -395,6 +476,8 @@ function openEditDialog(type, id) {
   els.editDate.value = entry.date;
   els.editMemo.value = entry.memo;
   els.editCategoryField.classList.toggle("hidden", type === "income");
+  els.editPaymentField.classList.toggle("hidden", type === "income");
+  els.editCardNameField.classList.toggle("hidden", type === "income");
   els.editIncomeSourceField.classList.toggle("hidden", type !== "income");
   els.editTagsField.classList.toggle("hidden", type === "income");
   if (type === "income") {
@@ -402,8 +485,11 @@ function openEditDialog(type, id) {
     state.editTags = new Set();
   } else {
     els.editCategory.value = entry.category;
+    state.editPaymentMethod = normalizedPaymentMethod(entry);
+    els.editCardName.value = entry.cardName || "";
     state.editTags = new Set(entry.tags);
   }
+  renderEditPaymentMode();
   renderEditTags();
   els.editError.textContent = "";
   els.editDialog.showModal();
@@ -431,6 +517,8 @@ async function handleEditExpense(event) {
     type,
     category: els.editCategory.value,
     source: els.editIncomeSource.value,
+    paymentMethod: state.editPaymentMethod,
+    cardName: els.editCardName.value.trim(),
   });
   if (validation) {
     els.editError.textContent = validation;
@@ -453,9 +541,13 @@ async function handleEditExpense(event) {
     state.incomes = state.incomes.map((item) => (item.id === updated.id ? updated : item));
   } else {
     updated.category = els.editCategory.value;
+    updated.paymentMethod = state.editPaymentMethod;
+    updated.cardName = state.editPaymentMethod === "card" ? els.editCardName.value.trim() : "";
     updated.tags = [...state.editTags];
     await db.put("expenses", updated);
     state.expenses = state.expenses.map((item) => (item.id === updated.id ? updated : item));
+    rememberCardName(updated.cardName);
+    await saveSettings();
   }
   closeEditDialog();
   render();
@@ -517,12 +609,13 @@ function dailyRemaining(key, remaining) {
   return remaining / (daysInMonth - today + 1);
 }
 
-function validateEntry({ amount, date, type, category, source }) {
+function validateEntry({ amount, date, type, category, source, paymentMethod, cardName }) {
   if (!date) return "日付を選択してください";
   if (!amount && amount !== 0) return "金額を入力してください";
   if (amount <= 0) return "1円以上で入力してください";
   if (type === "income" && !source) return "収入種別を選択してください";
   if (type !== "income" && !category) return "カテゴリを選択してください";
+  if (type !== "income" && paymentMethod === "card" && !cardName) return "カード名を入力してください";
   return "";
 }
 
@@ -537,12 +630,30 @@ function renderInputMode() {
     button.classList.toggle("active", button.dataset.entryType === state.entryType);
   });
   els.categoryField.classList.toggle("hidden", isIncome);
+  els.paymentField.classList.toggle("hidden", isIncome);
   els.incomeSourceField.classList.toggle("hidden", !isIncome);
   els.tagDetails.classList.toggle("hidden", isIncome);
   els.memo.placeholder = isIncome ? "給与・振込元など" : "店名・用途など";
   document.querySelector(".primary-action").textContent = isIncome ? "収入を登録する" : "登録する";
   if (isIncome) state.selectedTags.clear();
+  renderPaymentMode();
   renderOptions();
+}
+
+function renderPaymentMode() {
+  const isCard = state.selectedPaymentMethod === "card";
+  document.querySelectorAll("[data-payment-method]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.paymentMethod === state.selectedPaymentMethod);
+  });
+  els.cardNameField.classList.toggle("hidden", state.entryType === "income" || !isCard);
+}
+
+function renderEditPaymentMode() {
+  const isCard = state.editPaymentMethod === "card";
+  document.querySelectorAll("[data-edit-payment-method]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.editPaymentMethod === state.editPaymentMethod);
+  });
+  els.editCardNameField.classList.toggle("hidden", els.editType.value === "income" || !isCard);
 }
 
 function chipButton(label, active, name) {
@@ -595,11 +706,25 @@ function sum(values) {
 
 function groupBy(items, key) {
   return items.reduce((groups, item) => {
-    const group = item[key];
+    const group = item[key] || "未分類";
     groups[group] ||= [];
     groups[group].push(item);
     return groups;
   }, {});
+}
+
+function normalizedPaymentMethod(expense) {
+  return expense.paymentMethod === "card" ? "card" : "cash";
+}
+
+function paymentLabel(expense) {
+  return normalizedPaymentMethod(expense) === "card" ? expense.cardName || "カード" : "現金";
+}
+
+function rememberCardName(name) {
+  const normalized = String(name || "").trim();
+  if (!normalized || state.settings.cardNames.includes(normalized)) return;
+  state.settings.cardNames = [normalized, ...state.settings.cardNames].slice(0, 12);
 }
 
 function sortNewest(a, b) {
@@ -630,6 +755,13 @@ async function loadData() {
   state.incomes = incomes || [];
   state.settings = { ...defaultSettings, ...(savedSettings?.value || {}) };
   state.settings.incomeSources = state.settings.incomeSources || incomeSources;
+  state.settings.cardNames = state.settings.cardNames || defaultCardNames;
+  state.expenses = state.expenses.map((expense) => ({
+    paymentMethod: "cash",
+    cardName: "",
+    tags: [],
+    ...expense,
+  }));
 }
 
 async function saveSettings() {
@@ -637,10 +769,30 @@ async function saveSettings() {
 }
 
 function exportCsv() {
-  const header = ["type", "id", "date", "amount", "category", "source", "memo", "tags", "createdAt", "updatedAt"];
+  const header = [
+    "type",
+    "id",
+    "date",
+    "amount",
+    "category",
+    "source",
+    "paymentMethod",
+    "cardName",
+    "memo",
+    "tags",
+    "createdAt",
+    "updatedAt",
+  ];
   const entries = [
     ...state.expenses.map((expense) => ({ ...expense, type: "expense", source: "" })),
-    ...state.incomes.map((income) => ({ ...income, type: "income", category: "", tags: [] })),
+    ...state.incomes.map((income) => ({
+      ...income,
+      type: "income",
+      category: "",
+      paymentMethod: "",
+      cardName: "",
+      tags: [],
+    })),
   ].sort(sortNewest);
   const rows = entries.map((entry) =>
     header.map((key) => csvCell(key === "tags" ? (entry.tags || []).join("|") : entry[key])).join(",")
